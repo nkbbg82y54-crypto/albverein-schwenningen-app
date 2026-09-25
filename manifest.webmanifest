@@ -1,0 +1,19 @@
+{
+  "name": "Albverein Schwenningen/Heuberg",
+  "short_name": "Albverein",
+  "description": "Termine, Meldungen und Informationen der Ortsgruppe Schwenningen/Heuberg",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f5ee",
+  "theme_color": "#315b38",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
