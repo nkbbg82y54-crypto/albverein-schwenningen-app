@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sav-schwenningen-backend",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": true,
+  "vars": {
+    "ALLOWED_ORIGIN": "https://app.sav-schwenningen.de",
+    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_WITH_ACCESS_AUDIENCE"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sav-schwenningen-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ]
+}
