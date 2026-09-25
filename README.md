@@ -17,4 +17,6 @@ Dies ist derzeit ein klickbarer Prototyp. Anmeldung, Formulare, E-Mail-Benachric
 
 Die persönlichen Login-Adressen werden erst im geschützten Backend hinterlegt. Admin 1 verwaltet die Rechte, Admin 2 besitzt vorerst Vollzugriff auf alle fachlichen Bereiche und Admin 3 sieht ausschließlich Änderungsmitteilungen. Benachrichtigungen werden später an das zentrale Funktionspostfach gesendet.
 
+Das vorbereitete Cloudflare-Backend befindet sich im Ordner `backend`. Es enthält das D1-Schema, verschlüsselte Änderungsmitteilungen und die serverseitige Rollenprüfung. Platzhalter und Secrets müssen vor dem ersten Deployment direkt in Cloudflare gesetzt werden.
+
 Die veröffentlichte Web-App wird aus dem Inhalt des Ordners `dist` erzeugt.
