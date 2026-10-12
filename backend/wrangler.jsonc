@@ -15,11 +15,5 @@
       "database_name": "sav-schwenningen-db",
       "database_id": "795c7cd9-e864-4125-a588-dc93e01081a4"
     }
-  ],
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "destination_address": "app@sav-schwenningen.de"
-    }
   ]
 }
