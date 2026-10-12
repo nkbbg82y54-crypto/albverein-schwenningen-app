@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "14" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "15" });
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
@@ -328,7 +328,7 @@ function validateContentInput(body) {
     throw new HttpError(400, "Invalid content payload");
   }
   const serialized = JSON.stringify(body.payload);
-  if (serialized.length > 100_000) throw new HttpError(413, "Content payload too large");
+  if (serialized.length > 250_000) throw new HttpError(413, "Content payload too large");
   return {
     payload: body.payload,
     sortOrder: Number.isInteger(body.sortOrder) ? body.sortOrder : 0,
@@ -495,7 +495,7 @@ async function readJson(request) {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.toLowerCase().includes("application/json")) throw new HttpError(415, "JSON required");
   const text = await request.text();
-  if (text.length > 150_000) throw new HttpError(413, "Request too large");
+  if (text.length > 300_000) throw new HttpError(413, "Request too large");
   try {
     return JSON.parse(text);
   } catch {
@@ -508,7 +508,7 @@ async function readBrowserAction(request, env) {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.toLowerCase().startsWith("text/plain")) throw new HttpError(415, "Plain text JSON required");
   const text = await request.text();
-  if (text.length > 150_000) throw new HttpError(413, "Request too large");
+  if (text.length > 300_000) throw new HttpError(413, "Request too large");
   try {
     return JSON.parse(text);
   } catch {
