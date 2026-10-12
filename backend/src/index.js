@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "13" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "14" });
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
@@ -84,26 +84,6 @@ async function handleAdminRequest(request, url, env, ctx) {
       return deleteChangeRequest(env, ctx, actor, changeActionMatch[1]);
     }
     return json({ error: "Invalid action" }, 400);
-  }
-
-  if (url.pathname === "/api/admin/notifications/test/action" && request.method === "POST") {
-    requirePermission(actor, "changes_view");
-    const body = await readBrowserAction(request, env);
-    if (body.action !== "send-test") return json({ error: "Invalid action" }, 400);
-    if (!env.EMAIL) return json({ error: "EMAIL binding is not configured" }, 503);
-    try {
-      await sendEmail(env, {
-        subject: "Test: E-Mail-Hinweise der SAV-App",
-        text: `Der E-Mail-Versand der SAV-App funktioniert.\n\nAusgelöst von: ${actor.email}`,
-      });
-      ctx.waitUntil(audit(env, actor.email, "notification.test", "email"));
-      return json({ ok: true });
-    } catch (error) {
-      console.error("notification_test_failed", error);
-      const code = error && typeof error === "object" && "code" in error ? `${error.code}: ` : "";
-      const message = error instanceof Error ? error.message : String(error);
-      return json({ error: `${code}${message || "Unknown email error"}` }, 502);
-    }
   }
 
   const changeMatch = url.pathname.match(/^\/api\/admin\/change-requests\/([0-9a-f-]+)$/i);
