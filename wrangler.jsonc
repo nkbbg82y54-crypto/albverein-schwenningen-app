@@ -16,5 +16,11 @@
       "database_id": "795c7cd9-e864-4125-a588-dc93e01081a4",
       "migrations_dir": "backend/migrations"
     }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "destination_address": "app@sav-schwenningen.de"
+    }
   ]
 }
