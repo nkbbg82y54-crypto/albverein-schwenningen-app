@@ -6,8 +6,8 @@
   "workers_dev": true,
   "vars": {
     "ALLOWED_ORIGIN": "https://app.sav-schwenningen.de",
-    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
-    "ACCESS_AUD": "REPLACE_WITH_ACCESS_AUDIENCE"
+    "ACCESS_TEAM_DOMAIN": "rapid-fire-b6ad.cloudflareaccess.com",
+    "ACCESS_AUD": "58d9d453ccc99dde16c4b5edb79e84b2101fe12683ea68d34aba90ddc31a92af"
   },
   "d1_databases": [
     {
