@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "12" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "13" });
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
@@ -77,8 +77,33 @@ async function handleAdminRequest(request, url, env, ctx) {
   if (changeActionMatch && request.method === "POST") {
     requirePermission(actor, "changes_view");
     const body = await readBrowserAction(request, env);
-    if (body.action !== "status") return json({ error: "Invalid action" }, 400);
-    return updateChangeRequestStatus(env, ctx, actor, changeActionMatch[1], body.status);
+    if (body.action === "status") {
+      return updateChangeRequestStatus(env, ctx, actor, changeActionMatch[1], body.status);
+    }
+    if (body.action === "delete") {
+      return deleteChangeRequest(env, ctx, actor, changeActionMatch[1]);
+    }
+    return json({ error: "Invalid action" }, 400);
+  }
+
+  if (url.pathname === "/api/admin/notifications/test/action" && request.method === "POST") {
+    requirePermission(actor, "changes_view");
+    const body = await readBrowserAction(request, env);
+    if (body.action !== "send-test") return json({ error: "Invalid action" }, 400);
+    if (!env.EMAIL) return json({ error: "EMAIL binding is not configured" }, 503);
+    try {
+      await sendEmail(env, {
+        subject: "Test: E-Mail-Hinweise der SAV-App",
+        text: `Der E-Mail-Versand der SAV-App funktioniert.\n\nAusgelöst von: ${actor.email}`,
+      });
+      ctx.waitUntil(audit(env, actor.email, "notification.test", "email"));
+      return json({ ok: true });
+    } catch (error) {
+      console.error("notification_test_failed", error);
+      const code = error && typeof error === "object" && "code" in error ? `${error.code}: ` : "";
+      const message = error instanceof Error ? error.message : String(error);
+      return json({ error: `${code}${message || "Unknown email error"}` }, 502);
+    }
   }
 
   const changeMatch = url.pathname.match(/^\/api\/admin\/change-requests\/([0-9a-f-]+)$/i);
@@ -196,6 +221,15 @@ async function updateChangeRequestStatus(env, ctx, actor, id, status) {
   if (!result.meta.changes) return json({ error: "Not found" }, 404);
   ctx.waitUntil(audit(env, actor.email, "change_request.status", "change_request", id, { status }));
   return json({ ok: true, status });
+}
+
+async function deleteChangeRequest(env, ctx, actor, id) {
+  const result = await env.DB.prepare(
+    "DELETE FROM change_requests WHERE id = ?1",
+  ).bind(id).run();
+  if (!result.meta.changes) return json({ error: "Not found" }, 404);
+  ctx.waitUntil(audit(env, actor.email, "change_request.delete", "change_request", id));
+  return json({ ok: true });
 }
 
 async function handleAdminContent(request, env, ctx, actor, resourceType, id) {
@@ -414,9 +448,7 @@ async function sendNotification(env, id, requestType, createdAt) {
     let sent = false;
     if (env.EMAIL) {
       const typeLabel = requestType === "bank" ? "Bankverbindung" : "Adressänderung";
-      await env.EMAIL.send({
-        to: "app@sav-schwenningen.de",
-        from: "app@sav-schwenningen.de",
+      await sendEmail(env, {
         subject: `Neue Änderungsmitteilung: ${typeLabel}`,
         text: `In der SAV-App ist eine neue Änderungsmitteilung eingegangen.\n\nArt: ${typeLabel}\nEingang: ${createdAt}\nVorgang: ${id}\n\nDie persönlichen Angaben stehen ausschließlich im geschützten Adminbereich:\nhttps://app.sav-schwenningen.de/#admin`,
       });
@@ -441,6 +473,12 @@ async function sendNotification(env, id, requestType, createdAt) {
       "UPDATE change_requests SET notification_status = 'failed' WHERE id = ?1",
     ).bind(id).run();
   }
+}
+
+async function sendEmail(env, { subject, text }) {
+  const from = "app@sav-schwenningen.de";
+  const to = "app@sav-schwenningen.de";
+  return env.EMAIL.send({ from, to, subject, text });
 }
 
 async function audit(env, actorEmail, action, targetType, targetId = null, details = null) {
