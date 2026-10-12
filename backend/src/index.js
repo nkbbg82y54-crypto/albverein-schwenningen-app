@@ -157,6 +157,27 @@ async function handleAdminRequest(request, url, env, ctx) {
     return json({ ok: true, permissions });
   }
 
+  const contentActionMatch = url.pathname.match(/^\/api\/admin\/content\/(events|notices|board|gallery)(?:\/([0-9a-f-]+))?\/action$/i);
+  if (contentActionMatch && request.method === "POST") {
+    const body = await readBrowserAction(request, env);
+    const method = body.action === "create" ? "POST" : body.action === "update" ? "PUT" : body.action === "delete" ? "DELETE" : null;
+    if (!method) return json({ error: "Invalid action" }, 400);
+    if (method !== "POST" && !contentActionMatch[2]) return json({ error: "Item id required" }, 400);
+    const forwarded = new Request(request.url, {
+      method,
+      headers: method === "DELETE" ? {} : { "content-type": "application/json" },
+      ...(method === "DELETE" ? {} : { body: JSON.stringify(body.input) }),
+    });
+    return handleAdminContent(
+      forwarded,
+      env,
+      ctx,
+      actor,
+      contentActionMatch[1].toLowerCase(),
+      contentActionMatch[2],
+    );
+  }
+
   const resourceMatch = url.pathname.match(/^\/api\/admin\/content\/(events|notices|board|gallery)(?:\/([0-9a-f-]+))?$/i);
   if (resourceMatch) {
     return handleAdminContent(request, env, ctx, actor, resourceMatch[1].toLowerCase(), resourceMatch[2]);
@@ -430,6 +451,19 @@ function formatContentRow(row) {
 async function readJson(request) {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.toLowerCase().includes("application/json")) throw new HttpError(415, "JSON required");
+  const text = await request.text();
+  if (text.length > 150_000) throw new HttpError(413, "Request too large");
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(400, "Invalid JSON");
+  }
+}
+
+async function readBrowserAction(request, env) {
+  if (request.headers.get("origin") !== env.ALLOWED_ORIGIN) throw new HttpError(403, "Forbidden origin");
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().startsWith("text/plain")) throw new HttpError(415, "Plain text JSON required");
   const text = await request.text();
   if (text.length > 150_000) throw new HttpError(413, "Request too large");
   try {
