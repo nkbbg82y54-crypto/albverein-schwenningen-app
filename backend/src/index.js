@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "11" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "12" });
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
@@ -271,14 +271,14 @@ async function createChangeRequest(request, env, ctx) {
   const encrypted = await encryptPayload(input.payload, env.DATA_ENCRYPTION_KEY);
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const notificationStatus = env.NOTIFICATION_WEBHOOK_URL ? "pending" : "disabled";
+  const notificationStatus = env.EMAIL || env.NOTIFICATION_WEBHOOK_URL ? "pending" : "disabled";
   await env.DB.prepare(
     `INSERT INTO change_requests
      (id, request_type, encrypted_payload, encryption_iv, status, notification_status, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, 'new', ?5, ?6, ?6)`,
   ).bind(id, input.requestType, encrypted.ciphertext, encrypted.iv, notificationStatus, now).run();
 
-  if (env.NOTIFICATION_WEBHOOK_URL) {
+  if (env.EMAIL || env.NOTIFICATION_WEBHOOK_URL) {
     ctx.waitUntil(sendNotification(env, id, input.requestType, now));
   }
   return json({ ok: true, id }, 201);
@@ -411,17 +411,30 @@ async function verifyTurnstile(token, request, secret) {
 
 async function sendNotification(env, id, requestType, createdAt) {
   try {
-    const response = await fetch(env.NOTIFICATION_WEBHOOK_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(env.NOTIFICATION_WEBHOOK_TOKEN ? { authorization: `Bearer ${env.NOTIFICATION_WEBHOOK_TOKEN}` } : {}),
-      },
-      body: JSON.stringify({ id, requestType, createdAt, containsSensitiveData: true }),
-    });
+    let sent = false;
+    if (env.EMAIL) {
+      const typeLabel = requestType === "bank" ? "Bankverbindung" : "Adressänderung";
+      await env.EMAIL.send({
+        to: "app@sav-schwenningen.de",
+        from: "app@sav-schwenningen.de",
+        subject: `Neue Änderungsmitteilung: ${typeLabel}`,
+        text: `In der SAV-App ist eine neue Änderungsmitteilung eingegangen.\n\nArt: ${typeLabel}\nEingang: ${createdAt}\nVorgang: ${id}\n\nDie persönlichen Angaben stehen ausschließlich im geschützten Adminbereich:\nhttps://app.sav-schwenningen.de/#admin`,
+      });
+      sent = true;
+    } else if (env.NOTIFICATION_WEBHOOK_URL) {
+      const response = await fetch(env.NOTIFICATION_WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(env.NOTIFICATION_WEBHOOK_TOKEN ? { authorization: `Bearer ${env.NOTIFICATION_WEBHOOK_TOKEN}` } : {}),
+        },
+        body: JSON.stringify({ id, requestType, createdAt, containsSensitiveData: true }),
+      });
+      sent = response.ok;
+    }
     await env.DB.prepare(
       "UPDATE change_requests SET notification_status = ?1 WHERE id = ?2",
-    ).bind(response.ok ? "sent" : "failed", id).run();
+    ).bind(sent ? "sent" : "failed", id).run();
   } catch (error) {
     console.error("notification_failed", error);
     await env.DB.prepare(
