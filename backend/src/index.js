@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "11" });
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
@@ -73,6 +73,14 @@ async function handleAdminRequest(request, url, env, ctx) {
     return json({ items: rows.results });
   }
 
+  const changeActionMatch = url.pathname.match(/^\/api\/admin\/change-requests\/([0-9a-f-]+)\/action$/i);
+  if (changeActionMatch && request.method === "POST") {
+    requirePermission(actor, "changes_view");
+    const body = await readBrowserAction(request, env);
+    if (body.action !== "status") return json({ error: "Invalid action" }, 400);
+    return updateChangeRequestStatus(env, ctx, actor, changeActionMatch[1], body.status);
+  }
+
   const changeMatch = url.pathname.match(/^\/api\/admin\/change-requests\/([0-9a-f-]+)$/i);
   if (changeMatch && request.method === "GET") {
     requirePermission(actor, "changes_view");
@@ -97,18 +105,7 @@ async function handleAdminRequest(request, url, env, ctx) {
   if (changeMatch && request.method === "PATCH") {
     requirePermission(actor, "changes_view");
     const body = await readJson(request);
-    const allowedStatuses = new Set(["new", "in_progress", "completed", "deleted"]);
-    if (!allowedStatuses.has(body.status)) return json({ error: "Invalid status" }, 400);
-    const now = new Date().toISOString();
-    const completed = body.status === "completed" ? now : null;
-    const result = await env.DB.prepare(
-      `UPDATE change_requests
-       SET status = ?1, updated_at = ?2, completed_at = ?3, completed_by = ?4
-       WHERE id = ?5`,
-    ).bind(body.status, now, completed, completed ? actor.email : null, changeMatch[1]).run();
-    if (!result.meta.changes) return json({ error: "Not found" }, 404);
-    ctx.waitUntil(audit(env, actor.email, "change_request.status", "change_request", changeMatch[1], { status: body.status }));
-    return json({ ok: true });
+    return updateChangeRequestStatus(env, ctx, actor, changeMatch[1], body.status);
   }
 
   if (url.pathname === "/api/admin/admins" && request.method === "GET") {
@@ -184,6 +181,21 @@ async function handleAdminRequest(request, url, env, ctx) {
   }
 
   return json({ error: "Not found" }, 404);
+}
+
+async function updateChangeRequestStatus(env, ctx, actor, id, status) {
+  const allowedStatuses = new Set(["new", "in_progress", "completed", "deleted"]);
+  if (!allowedStatuses.has(status)) return json({ error: "Invalid status" }, 400);
+  const now = new Date().toISOString();
+  const completed = status === "completed" ? now : null;
+  const result = await env.DB.prepare(
+    `UPDATE change_requests
+     SET status = ?1, updated_at = ?2, completed_at = ?3, completed_by = ?4
+     WHERE id = ?5 AND status != 'deleted'`,
+  ).bind(status, now, completed, completed ? actor.email : null, id).run();
+  if (!result.meta.changes) return json({ error: "Not found" }, 404);
+  ctx.waitUntil(audit(env, actor.email, "change_request.status", "change_request", id, { status }));
+  return json({ ok: true, status });
 }
 
 async function handleAdminContent(request, env, ctx, actor, resourceType, id) {
