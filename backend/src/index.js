@@ -114,14 +114,6 @@ async function handleAdminRequest(request, url, env, ctx) {
     });
   }
 
-  if (request.method === "POST" && url.pathname === "/api/admin/push/reset") {
-    requirePermission(actor, "notices_manage");
-    const result = await env.DB.prepare("DELETE FROM push_subscriptions").run();
-    const removed = Number(result.meta?.changes || 0);
-    ctx.waitUntil(audit(env, actor.email, "push.reset", "push_subscriptions", "all", { removed }));
-    return json({ ok: true, removed });
-  }
-
   if (url.pathname === "/api/admin/change-requests" && request.method === "GET") {
     requirePermission(actor, "changes_view");
     const rows = await env.DB.prepare(
