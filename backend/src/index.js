@@ -26,7 +26,18 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "19" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "22" });
+      } else if (request.method === "GET" && url.pathname === "/api/push/config") {
+        response = json({
+          enabled: Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_JWK),
+          publicKey: env.VAPID_PUBLIC_KEY || "",
+        });
+      } else if (request.method === "POST" && url.pathname === "/api/push/subscribe") {
+        response = await savePushSubscription(request, env);
+      } else if (request.method === "POST" && url.pathname === "/api/push/unsubscribe") {
+        response = await removePushSubscription(request, env);
+      } else if (request.method === "GET" && url.pathname === "/api/push/latest") {
+        response = await getLatestPushNotice(env);
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
@@ -59,7 +70,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=19#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=22#admin-session=${token}` },
     });
   }
 
@@ -70,6 +81,26 @@ async function handleAdminRequest(request, url, env, ctx) {
       roleLabel: actor.role_label,
       permissions: actor.permissions,
     });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/push/send") {
+    requirePermission(actor, "notices_manage");
+    const body = await readBrowserAction(request, env);
+    const noticeId = typeof body.noticeId === "string" ? body.noticeId : "";
+    const notice = await env.DB.prepare(
+      "SELECT id FROM content_items WHERE id = ?1 AND resource_type = 'notices' AND published = 1",
+    ).bind(noticeId).first();
+    if (!notice) return json({ error: "Published notice not found" }, 404);
+    if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_JWK) return json({ error: "Push is not configured" }, 503);
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO push_state (state_key, notice_id, updated_at)
+       VALUES ('current', ?1, ?2)
+       ON CONFLICT(state_key) DO UPDATE SET notice_id = excluded.notice_id, updated_at = excluded.updated_at`,
+    ).bind(noticeId, now).run();
+    const result = await sendPushBroadcast(env);
+    ctx.waitUntil(audit(env, actor.email, "push.send", "notice", noticeId, result));
+    return json(result);
   }
 
   if (url.pathname === "/api/admin/change-requests" && request.method === "GET") {
@@ -283,6 +314,121 @@ async function listPublicContent(url, env) {
      ORDER BY sort_order, updated_at DESC`,
   ).bind(resourceType).all();
   return json({ items: rows.results.map(formatContentRow) });
+}
+
+async function savePushSubscription(request, env) {
+  requireAllowedOrigin(request, env);
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_JWK) return json({ error: "Push is not configured" }, 503);
+  const subscription = await readJson(request);
+  const endpoint = typeof subscription?.endpoint === "string" ? subscription.endpoint.trim() : "";
+  if (!endpoint.startsWith("https://") || endpoint.length > 2000) throw new HttpError(400, "Invalid push subscription");
+  const serialized = JSON.stringify(subscription);
+  if (serialized.length > 10_000) throw new HttpError(413, "Push subscription too large");
+  const id = await sha256Base64Url(endpoint);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO push_subscriptions (id, endpoint, subscription_json, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?4)
+     ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, updated_at = excluded.updated_at`,
+  ).bind(id, endpoint, serialized, now).run();
+  return json({ ok: true });
+}
+
+async function removePushSubscription(request, env) {
+  requireAllowedOrigin(request, env);
+  const body = await readJson(request);
+  const endpoint = typeof body?.endpoint === "string" ? body.endpoint.trim() : "";
+  if (!endpoint) throw new HttpError(400, "Invalid push subscription");
+  await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?1").bind(endpoint).run();
+  return json({ ok: true });
+}
+
+async function getLatestPushNotice(env) {
+  const row = await env.DB.prepare(
+    `SELECT c.payload_json
+     FROM push_state s
+     JOIN content_items c ON c.id = s.notice_id
+     WHERE s.state_key = 'current' AND c.resource_type = 'notices' AND c.published = 1`,
+  ).first();
+  if (!row) return json({ error: "No push notice" }, 404);
+  const notice = JSON.parse(row.payload_json);
+  return json({
+    title: notice.title || "Neue Meldung vom Albverein",
+    body: notice.text || "In der App gibt es eine neue Meldung.",
+    url: `${env.ALLOWED_ORIGIN}/#meldungen`,
+  });
+}
+
+async function sendPushBroadcast(env) {
+  const rows = await env.DB.prepare(
+    "SELECT id, endpoint FROM push_subscriptions ORDER BY updated_at DESC LIMIT 500",
+  ).all();
+  let sent = 0;
+  let failed = 0;
+  const expired = [];
+  await Promise.all(rows.results.map(async (subscription) => {
+    try {
+      const authorization = await createVapidAuthorization(subscription.endpoint, env);
+      const response = await fetch(subscription.endpoint, {
+        method: "POST",
+        headers: {
+          authorization,
+          ttl: "60",
+          urgency: "normal",
+        },
+      });
+      if (response.ok) sent += 1;
+      else if (response.status === 404 || response.status === 410) expired.push(subscription.id);
+      else failed += 1;
+    } catch (error) {
+      console.error("push_delivery_failed", error);
+      failed += 1;
+    }
+  }));
+  if (expired.length) {
+    await env.DB.batch(expired.map((id) => env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?1").bind(id)));
+  }
+  return { ok: true, sent, failed, removed: expired.length, total: rows.results.length };
+}
+
+export async function createVapidAuthorization(endpoint, env) {
+  const audience = new URL(endpoint).origin;
+  const header = encodeBase64UrlText(JSON.stringify({ typ: "JWT", alg: "ES256" }));
+  const payload = encodeBase64UrlText(JSON.stringify({
+    aud: audience,
+    exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+    sub: env.VAPID_SUBJECT || "mailto:app@sav-schwenningen.de",
+  }));
+  let jwk;
+  try {
+    jwk = JSON.parse(env.VAPID_PRIVATE_JWK);
+  } catch {
+    throw new HttpError(503, "Invalid VAPID configuration");
+  }
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+  const signingInput = `${header}.${payload}`;
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    key,
+    new TextEncoder().encode(signingInput),
+  );
+  const token = `${signingInput}.${toBase64Url(new Uint8Array(signature))}`;
+  return `vapid t=${token}, k=${env.VAPID_PUBLIC_KEY}`;
+}
+
+async function sha256Base64Url(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return toBase64Url(new Uint8Array(digest));
+}
+
+function requireAllowedOrigin(request, env) {
+  if (request.headers.get("origin") !== env.ALLOWED_ORIGIN) throw new HttpError(403, "Forbidden origin");
 }
 
 async function createChangeRequest(request, env, ctx) {
