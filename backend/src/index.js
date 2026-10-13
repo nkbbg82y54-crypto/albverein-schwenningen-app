@@ -26,12 +26,15 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "15" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "18" });
       } else if (request.method === "POST" && url.pathname === "/api/change-requests") {
         response = await createChangeRequest(request, env, ctx);
       } else if (request.method === "GET" && url.pathname.startsWith("/api/content/")) {
         response = await listPublicContent(url, env);
       } else if (url.pathname.startsWith("/api/admin/")) {
+        response = await handleAdminRequest(request, url, env, ctx);
+      } else if (url.pathname.startsWith("/api/manage/")) {
+        url.pathname = url.pathname.replace(/^\/api\/manage\//, "/api/admin/");
         response = await handleAdminRequest(request, url, env, ctx);
       } else {
         response = json({ error: "Not found" }, 404);
@@ -51,6 +54,14 @@ export default {
 async function handleAdminRequest(request, url, env, ctx) {
   const actor = await authenticateAdmin(request, env);
   if (!actor) return json({ error: "Unauthorized" }, 401);
+
+  if (request.method === "GET" && url.pathname === "/api/admin/login") {
+    const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
+    return new Response(null, {
+      status: 302,
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=18#admin-session=${token}` },
+    });
+  }
 
   if (request.method === "GET" && url.pathname === "/api/admin/me") {
     return json({
@@ -337,10 +348,17 @@ function validateContentInput(body) {
 }
 
 async function authenticateAdmin(request, env) {
-  const assertion = request.headers.get("Cf-Access-Jwt-Assertion");
-  if (!assertion || !env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) return null;
-  const claims = await verifyAccessJwt(assertion, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
-  const email = String(claims.email || "").trim().toLowerCase();
+  const authorization = request.headers.get("authorization") || "";
+  const sessionToken = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  let email = "";
+  if (sessionToken) {
+    email = await verifyAdminSessionToken(sessionToken, env.DATA_ENCRYPTION_KEY);
+  } else {
+    const assertion = request.headers.get("Cf-Access-Jwt-Assertion");
+    if (!assertion || !env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) return null;
+    const claims = await verifyAccessJwt(assertion, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
+    email = String(claims.email || "").trim().toLowerCase();
+  }
   if (!email) return null;
   const admin = await env.DB.prepare(
     "SELECT email, display_name, role_label FROM admins WHERE email = ?1 AND active = 1",
@@ -350,6 +368,51 @@ async function authenticateAdmin(request, env) {
     "SELECT permission FROM admin_permissions WHERE admin_email = ?1",
   ).bind(email).all();
   return { ...admin, email, permissions: permissions.results.map((row) => row.permission) };
+}
+
+async function createAdminSessionToken(email, secret) {
+  if (!secret) throw new HttpError(503, "Session service not configured");
+  const payload = encodeBase64UrlText(JSON.stringify({
+    email: String(email).trim().toLowerCase(),
+    exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+  }));
+  const key = await importAdminSessionKey(secret);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return `${payload}.${toBase64Url(new Uint8Array(signature))}`;
+}
+
+async function verifyAdminSessionToken(token, secret) {
+  if (!secret) throw new HttpError(401, "Invalid session");
+  const parts = token.split(".");
+  if (parts.length !== 2) throw new HttpError(401, "Invalid session");
+  const key = await importAdminSessionKey(secret);
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    key,
+    fromBase64Url(parts[1]),
+    new TextEncoder().encode(parts[0]),
+  );
+  if (!valid) throw new HttpError(401, "Invalid session");
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(fromBase64Url(parts[0])));
+  } catch {
+    throw new HttpError(401, "Invalid session");
+  }
+  if (!payload.email || !Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) {
+    throw new HttpError(401, "Session expired");
+  }
+  return String(payload.email).trim().toLowerCase();
+}
+
+async function importAdminSessionKey(secret) {
+  const source = fromBase64(secret);
+  const context = new TextEncoder().encode("sav-admin-session-v1");
+  const combined = new Uint8Array(source.length + context.length);
+  combined.set(source);
+  combined.set(context, source.length);
+  const derived = await crypto.subtle.digest("SHA-256", combined);
+  return crypto.subtle.importKey("raw", derived, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
 export async function verifyAccessJwt(token, teamDomain, audience) {
@@ -522,7 +585,7 @@ function corsHeaders(request, env) {
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "Content-Type, Cf-Access-Jwt-Assertion",
+    "access-control-allow-headers": "Authorization, Content-Type, Cf-Access-Jwt-Assertion",
     "access-control-allow-credentials": "true",
     "access-control-max-age": "86400",
     vary: "Origin",
@@ -546,6 +609,14 @@ function toBase64(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
+}
+
+function toBase64Url(bytes) {
+  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function encodeBase64UrlText(value) {
+  return toBase64Url(new TextEncoder().encode(value));
 }
 
 function fromBase64(value) {
