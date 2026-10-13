@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "22" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "27" });
       } else if (request.method === "GET" && url.pathname === "/api/push/config") {
         response = json({
           enabled: Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_JWK),
@@ -70,7 +70,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=22#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=27#admin-session=${token}` },
     });
   }
 
@@ -101,6 +101,25 @@ async function handleAdminRequest(request, url, env, ctx) {
     const result = await sendPushBroadcast(env);
     ctx.waitUntil(audit(env, actor.email, "push.send", "notice", noticeId, result));
     return json(result);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/push/stats") {
+    requirePermission(actor, "notices_manage");
+    const stats = await env.DB.prepare(
+      "SELECT COUNT(*) AS total, MAX(updated_at) AS latest_subscription_at FROM push_subscriptions",
+    ).first();
+    return json({
+      total: Number(stats?.total || 0),
+      latestSubscriptionAt: stats?.latest_subscription_at || null,
+    });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/push/reset") {
+    requirePermission(actor, "notices_manage");
+    const result = await env.DB.prepare("DELETE FROM push_subscriptions").run();
+    const removed = Number(result.meta?.changes || 0);
+    ctx.waitUntil(audit(env, actor.email, "push.reset", "push_subscriptions", "all", { removed }));
+    return json({ ok: true, removed });
   }
 
   if (url.pathname === "/api/admin/change-requests" && request.method === "GET") {

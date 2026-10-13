@@ -1,4 +1,4 @@
-const CACHE='albverein-schwenningen-v26';
+const CACHE='albverein-schwenningen-v27';
 const FILES=['./','./index.html','./manifest.webmanifest','./sav-app-icon-192.png','./sav-app-icon-512.png','./sav-app-icon-maskable-512.png','./sav-apple-touch-icon.png','./assets/florian-lessner.jpeg','./assets/matthias-kienitz.jpeg'];
 const PUSH_API='https://sav-schwenningen-backend.florian-lessner.workers.dev/api/push/latest';
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES))));
