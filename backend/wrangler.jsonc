@@ -7,7 +7,9 @@
   "vars": {
     "ALLOWED_ORIGIN": "https://app.sav-schwenningen.de",
     "ACCESS_TEAM_DOMAIN": "rapid-fire-b6ad.cloudflareaccess.com",
-    "ACCESS_AUD": "58d9d453ccc99dde16c4b5edb79e84b2101fe12683ea68d34aba90ddc31a92af"
+    "ACCESS_AUD": "58d9d453ccc99dde16c4b5edb79e84b2101fe12683ea68d34aba90ddc31a92af",
+    "VAPID_PUBLIC_KEY": "BCqkngYRULmhEJuMHmoei1T70OjK0RthvAsvKIolj6CzQJloN8QLjhZVvSUROSAzKheEAhNwN9lfZa1q-WX1LVs",
+    "VAPID_SUBJECT": "mailto:app@sav-schwenningen.de"
   },
   "d1_databases": [
     {
