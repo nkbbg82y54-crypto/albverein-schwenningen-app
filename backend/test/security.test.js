@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { berlinReminderContext, buildCalendarFile, createVapidAuthorization, decryptPayload, encryptPayload, validateChangeRequest } from "../src/index.js";
+import { berlinReminderContext, buildCalendarFile, createVapidAuthorization, decryptPayload, encryptPayload, isContentArchived, shiftIsoDate, validateChangeRequest } from "../src/index.js";
 
 test("encrypts and decrypts a change request payload", async () => {
   const key = Buffer.alloc(32, 7).toString("base64");
@@ -93,4 +93,13 @@ test("schedules reminders at 18:00 in Berlin across daylight saving time", () =>
 
   const summer = berlinReminderContext(new Date("2027-07-10T16:00:00Z"));
   assert.deepEqual(summer, { localDate: "2027-07-10", hour: 18, reminderDate: "2027-07-11" });
+});
+
+test("archives events after their final day and notices after 90 days", () => {
+  assert.equal(isContentArchived("events", { date: "2027-06-10" }, "2027-06-11"), true);
+  assert.equal(isContentArchived("events", { date: "2027-06-10", endDate: "2027-06-12" }, "2027-06-11"), false);
+  assert.equal(isContentArchived("events", { date: "2027-06-10", endDate: "2027-06-12" }, "2027-06-13"), true);
+  assert.equal(shiftIsoDate("2027-06-11", -90), "2027-03-13");
+  assert.equal(isContentArchived("notices", { date: "2027-03-13" }, "2027-06-11"), false);
+  assert.equal(isContentArchived("notices", { date: "2027-03-12" }, "2027-06-11"), true);
 });

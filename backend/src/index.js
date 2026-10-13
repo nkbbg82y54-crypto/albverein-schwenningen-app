@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "33" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "34" });
       } else if (request.method === "GET" && url.pathname === "/api/calendar.ics") {
         response = calendarResponse(url);
       } else if (request.method === "GET" && url.pathname === "/api/push/config") {
@@ -75,7 +75,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=33#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=34#admin-session=${token}` },
     });
   }
 
@@ -95,9 +95,12 @@ async function handleAdminRequest(request, url, env, ctx) {
     const contentId = isEvent ? body.eventId : (typeof body.noticeId === "string" ? body.noticeId : "");
     requirePermission(actor, isEvent ? "events_manage" : "notices_manage");
     const content = await env.DB.prepare(
-      "SELECT id FROM content_items WHERE id = ?1 AND resource_type = ?2 AND published = 1",
+      "SELECT id, payload_json FROM content_items WHERE id = ?1 AND resource_type = ?2 AND published = 1",
     ).bind(contentId, resourceType).first();
     if (!content) return json({ error: isEvent ? "Published event not found" : "Published notice not found" }, 404);
+    if (isContentArchived(resourceType, JSON.parse(content.payload_json), berlinReminderContext().localDate)) {
+      return json({ error: "Archived content cannot be pushed" }, 409);
+    }
     if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_JWK) return json({ error: "Push is not configured" }, 503);
     const now = new Date().toISOString();
     await env.DB.prepare(
@@ -281,7 +284,11 @@ async function handleAdminContent(request, env, ctx, actor, resourceType, id) {
        FROM content_items WHERE resource_type = ?1
        ORDER BY sort_order, updated_at DESC`,
     ).bind(resourceType).all();
-    return json({ items: rows.results.map(formatContentRow) });
+    const today = berlinReminderContext().localDate;
+    return json({ items: rows.results.map((row) => {
+      const item = formatContentRow(row);
+      return { ...item, archived: isContentArchived(resourceType, item.payload, today) };
+    }) });
   }
 
   if (request.method === "POST" && !id) {
@@ -331,7 +338,8 @@ async function listPublicContent(url, env) {
      WHERE resource_type = ?1 AND published = 1
      ORDER BY sort_order, updated_at DESC`,
   ).bind(resourceType).all();
-  return json({ items: rows.results.map(formatContentRow) });
+  const today = berlinReminderContext().localDate;
+  return json({ items: rows.results.map(formatContentRow).filter((item) => !isContentArchived(resourceType, item.payload, today)) });
 }
 
 function calendarResponse(url) {
@@ -404,9 +412,19 @@ function isCalendarDate(value) {
 }
 
 function nextCalendarDate(value) {
+  return shiftIsoDate(value, 1);
+}
+
+export function shiftIsoDate(value, days) {
   const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + 1));
+  const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
+}
+
+export function isContentArchived(resourceType, payload, today) {
+  if (resourceType === "events") return String(payload.endDate || payload.date || "") < today;
+  if (resourceType === "notices") return String(payload.date || "") < shiftIsoDate(today, -90);
+  return false;
 }
 
 function escapeCalendarText(value) {
