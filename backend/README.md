@@ -9,6 +9,7 @@ Dieses Verzeichnis enthält den Cloudflare Worker für die produktive App. Der �
 - serverseitige Prüfung von Cloudflare-Access-JWTs
 - AES-256-GCM-Verschlüsselung für Adress- und Bankänderungen vor der Speicherung
 - geschützter Posteingang und Audit-Protokoll
+- echte Web-Push-Abonnements und Versand veröffentlichter Meldungen per VAPID
 - optionale Turnstile-Prüfung gegen automatisierten Missbrauch
 - vorbereiteter, datensparsamer Benachrichtigungs-Webhook ohne Personen- oder Bankdaten
 
@@ -20,6 +21,7 @@ Vor dem ersten Deployment müssen folgende Platzhalter beziehungsweise Secrets d
 - `ACCESS_TEAM_DOMAIN`
 - `ACCESS_AUD`
 - Secret `DATA_ENCRYPTION_KEY` (32 zufällige Bytes, Base64-kodiert)
+- Secret `VAPID_PRIVATE_JWK` (privater P-256-Schlüssel als JSON)
 - optional `TURNSTILE_SECRET`
 - später optional `NOTIFICATION_WEBHOOK_URL` und `NOTIFICATION_WEBHOOK_TOKEN`
 
@@ -44,3 +46,5 @@ npm run check
 ```
 
 Die produktive D1-Datenbank wird erst nach bewusstem Eintragen der Datenbank-ID und der Cloudflare-Secrets verbunden.
+
+Für Push-Mitteilungen muss zusätzlich `migrations/0002_push_notifications.sql` auf der produktiven D1-Datenbank ausgeführt werden. Der öffentliche VAPID-Schlüssel und der Absender stehen in `wrangler.jsonc`; nur der private JWK wird als Worker-Secret gespeichert.
