@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCalendarFile, createVapidAuthorization, decryptPayload, encryptPayload, validateChangeRequest } from "../src/index.js";
+import { berlinReminderContext, buildCalendarFile, createVapidAuthorization, decryptPayload, encryptPayload, validateChangeRequest } from "../src/index.js";
 
 test("encrypts and decrypts a change request payload", async () => {
   const key = Buffer.alloc(32, 7).toString("base64");
@@ -85,4 +85,12 @@ test("includes the complete multi-day range in calendar files", () => {
   });
   assert.match(timed, /DTSTART:20270612T093000\r\n/);
   assert.match(timed, /DTEND:20270614T170000\r\n/);
+});
+
+test("schedules reminders at 18:00 in Berlin across daylight saving time", () => {
+  const winter = berlinReminderContext(new Date("2027-01-10T17:00:00Z"));
+  assert.deepEqual(winter, { localDate: "2027-01-10", hour: 18, reminderDate: "2027-01-11" });
+
+  const summer = berlinReminderContext(new Date("2027-07-10T16:00:00Z"));
+  assert.deepEqual(summer, { localDate: "2027-07-10", hour: 18, reminderDate: "2027-07-11" });
 });

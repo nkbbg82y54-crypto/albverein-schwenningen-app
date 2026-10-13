@@ -4,6 +4,9 @@
   "main": "backend/src/index.js",
   "compatibility_date": "2026-09-25",
   "workers_dev": true,
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
   "vars": {
     "ALLOWED_ORIGIN": "https://app.sav-schwenningen.de",
     "ACCESS_TEAM_DOMAIN": "rapid-fire-b6ad.cloudflareaccess.com",

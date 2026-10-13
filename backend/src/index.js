@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "32" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "33" });
       } else if (request.method === "GET" && url.pathname === "/api/calendar.ics") {
         response = calendarResponse(url);
       } else if (request.method === "GET" && url.pathname === "/api/push/config") {
@@ -62,6 +62,9 @@ export default {
       return withHeaders(json({ error: "Internal server error" }, 500), cors);
     }
   },
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(sendAutomaticEventReminders(env, new Date(controller.scheduledTime)));
+  },
 };
 
 async function handleAdminRequest(request, url, env, ctx) {
@@ -72,7 +75,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=32#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=33#admin-session=${token}` },
     });
   }
 
@@ -86,22 +89,24 @@ async function handleAdminRequest(request, url, env, ctx) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/admin/push/send") {
-    requirePermission(actor, "notices_manage");
     const body = await readBrowserAction(request, env);
-    const noticeId = typeof body.noticeId === "string" ? body.noticeId : "";
-    const notice = await env.DB.prepare(
-      "SELECT id FROM content_items WHERE id = ?1 AND resource_type = 'notices' AND published = 1",
-    ).bind(noticeId).first();
-    if (!notice) return json({ error: "Published notice not found" }, 404);
+    const isEvent = typeof body.eventId === "string";
+    const resourceType = isEvent ? "events" : "notices";
+    const contentId = isEvent ? body.eventId : (typeof body.noticeId === "string" ? body.noticeId : "");
+    requirePermission(actor, isEvent ? "events_manage" : "notices_manage");
+    const content = await env.DB.prepare(
+      "SELECT id FROM content_items WHERE id = ?1 AND resource_type = ?2 AND published = 1",
+    ).bind(contentId, resourceType).first();
+    if (!content) return json({ error: isEvent ? "Published event not found" : "Published notice not found" }, 404);
     if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_JWK) return json({ error: "Push is not configured" }, 503);
     const now = new Date().toISOString();
     await env.DB.prepare(
       `INSERT INTO push_state (state_key, notice_id, updated_at)
        VALUES ('current', ?1, ?2)
        ON CONFLICT(state_key) DO UPDATE SET notice_id = excluded.notice_id, updated_at = excluded.updated_at`,
-    ).bind(noticeId, now).run();
+    ).bind(contentId, now).run();
     const result = await sendPushBroadcast(env);
-    ctx.waitUntil(audit(env, actor.email, "push.send", "notice", noticeId, result));
+    ctx.waitUntil(audit(env, actor.email, "push.send", isEvent ? "event" : "notice", contentId, result));
     return json(result);
   }
 
@@ -437,18 +442,92 @@ async function removePushSubscription(request, env) {
 
 async function getLatestPushNotice(env) {
   const row = await env.DB.prepare(
-    `SELECT c.payload_json
+    `SELECT c.resource_type, c.payload_json
      FROM push_state s
      JOIN content_items c ON c.id = s.notice_id
-     WHERE s.state_key = 'current' AND c.resource_type = 'notices' AND c.published = 1`,
+     WHERE s.state_key = 'current' AND c.published = 1`,
   ).first();
-  if (!row) return json({ error: "No push notice" }, 404);
-  const notice = JSON.parse(row.payload_json);
+  if (!row) return json({ error: "No push message" }, 404);
+  const payload = JSON.parse(row.payload_json);
+  if (row.resource_type === "events") {
+    const sameDay = await env.DB.prepare(
+      `SELECT payload_json FROM content_items
+       WHERE resource_type = 'events' AND published = 1
+         AND json_extract(payload_json, '$.date') = ?1
+       ORDER BY sort_order, updated_at DESC`,
+    ).bind(payload.date || "").all();
+    const events = sameDay.results.map((item) => JSON.parse(item.payload_json));
+    if (events.length > 1) {
+      return json({
+        title: `Erinnerung: ${events.length} Termine`,
+        body: `${formatGermanEventDate(payload.date)}: ${events.map((event) => event.title).join(" · ")}`,
+        url: `${env.ALLOWED_ORIGIN}/#termine`,
+      });
+    }
+    return json({
+      title: `Erinnerung: ${payload.title || "Termin des Albvereins"}`,
+      body: eventPushBody(payload),
+      url: `${env.ALLOWED_ORIGIN}/#termine`,
+    });
+  }
   return json({
-    title: notice.title || "Neue Meldung vom Albverein",
-    body: notice.text || "In der App gibt es eine neue Meldung.",
+    title: payload.title || "Neue Meldung vom Albverein",
+    body: payload.text || "In der App gibt es eine neue Meldung.",
     url: `${env.ALLOWED_ORIGIN}/#meldungen`,
   });
+}
+
+function formatGermanEventDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return "Termin";
+  return new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", dateStyle: "medium" })
+    .format(new Date(`${value}T12:00:00Z`));
+}
+
+function eventPushBody(event) {
+  const details = [formatGermanEventDate(event.date)];
+  if (event.time) details.push(`${event.time} Uhr`);
+  if (event.location) details.push(event.location);
+  return details.join(" · ");
+}
+
+export function berlinReminderContext(date = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  const localDate = `${parts.year}-${parts.month}-${parts.day}`;
+  return { localDate, hour: Number(parts.hour), reminderDate: nextCalendarDate(localDate) };
+}
+
+async function sendAutomaticEventReminders(env, scheduledAt = new Date()) {
+  const context = berlinReminderContext(scheduledAt);
+  if (context.hour !== 18 || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_JWK) return { skipped: true };
+  const due = await env.DB.prepare(
+    `SELECT c.id FROM content_items c
+     LEFT JOIN push_state s ON s.state_key = ('event-reminder:' || c.id || ':' || json_extract(c.payload_json, '$.date'))
+     WHERE c.resource_type = 'events' AND c.published = 1
+       AND json_extract(c.payload_json, '$.date') = ?1
+       AND s.state_key IS NULL
+     ORDER BY c.sort_order, c.updated_at DESC`,
+  ).bind(context.reminderDate).all();
+  if (!due.results.length) return { skipped: true };
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO push_state (state_key, notice_id, updated_at)
+     VALUES ('current', ?1, ?2)
+     ON CONFLICT(state_key) DO UPDATE SET notice_id = excluded.notice_id, updated_at = excluded.updated_at`,
+  ).bind(due.results[0].id, now).run();
+  const result = await sendPushBroadcast(env);
+  await env.DB.batch(due.results.map((event) => env.DB.prepare(
+    `INSERT INTO push_state (state_key, notice_id, updated_at)
+     VALUES (?1, ?2, ?3)
+     ON CONFLICT(state_key) DO UPDATE SET notice_id = excluded.notice_id, updated_at = excluded.updated_at`,
+  ).bind(`event-reminder:${event.id}:${context.reminderDate}`, event.id, now)));
+  return result;
 }
 
 async function sendPushBroadcast(env) {
