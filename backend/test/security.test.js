@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createVapidAuthorization, decryptPayload, encryptPayload, validateChangeRequest } from "../src/index.js";
+import { buildCalendarFile, createVapidAuthorization, decryptPayload, encryptPayload, validateChangeRequest } from "../src/index.js";
 
 test("encrypts and decrypts a change request payload", async () => {
   const key = Buffer.alloc(32, 7).toString("base64");
@@ -60,4 +60,29 @@ test("creates a valid VAPID authorization token", async () => {
     new TextEncoder().encode(`${header}.${payload}`),
   );
   assert.equal(valid, true);
+});
+
+test("creates a valid all-day calendar file", () => {
+  const calendar = buildCalendarFile({ title: "Wanderung", startDate: "2027-06-12", location: "Schwenningen" });
+  assert.match(calendar, /DTSTART;VALUE=DATE:20270612\r\n/);
+  assert.match(calendar, /DTEND;VALUE=DATE:20270613\r\n/);
+  assert.match(calendar, /SUMMARY:Wanderung\r\n/);
+  assert.ok(!calendar.includes("undefined"));
+  assert.ok(!calendar.includes("\\r\\n"));
+});
+
+test("includes the complete multi-day range in calendar files", () => {
+  const allDay = buildCalendarFile({ title: "Ausfahrt", startDate: "2027-06-12", endDate: "2027-06-14" });
+  assert.match(allDay, /DTSTART;VALUE=DATE:20270612\r\n/);
+  assert.match(allDay, /DTEND;VALUE=DATE:20270615\r\n/);
+
+  const timed = buildCalendarFile({
+    title: "Hüttenwochenende",
+    startDate: "2027-06-12",
+    endDate: "2027-06-14",
+    startTime: "09:30",
+    endTime: "17:00",
+  });
+  assert.match(timed, /DTSTART:20270612T093000\r\n/);
+  assert.match(timed, /DTEND:20270614T170000\r\n/);
 });

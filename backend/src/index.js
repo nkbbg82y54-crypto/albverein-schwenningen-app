@@ -26,7 +26,9 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "27" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "30" });
+      } else if (request.method === "GET" && url.pathname === "/api/calendar.ics") {
+        response = calendarResponse(url);
       } else if (request.method === "GET" && url.pathname === "/api/push/config") {
         response = json({
           enabled: Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_JWK),
@@ -70,7 +72,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=27#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=30#admin-session=${token}` },
     });
   }
 
@@ -325,6 +327,85 @@ async function listPublicContent(url, env) {
      ORDER BY sort_order, updated_at DESC`,
   ).bind(resourceType).all();
   return json({ items: rows.results.map(formatContentRow) });
+}
+
+function calendarResponse(url) {
+  const content = buildCalendarFile({
+    title: url.searchParams.get("title") || "",
+    startDate: url.searchParams.get("startDate") || "",
+    endDate: url.searchParams.get("endDate") || "",
+    startTime: url.searchParams.get("startTime") || "",
+    endTime: url.searchParams.get("endTime") || "",
+    location: url.searchParams.get("location") || "",
+  });
+  return new Response(content, {
+    headers: {
+      "content-type": "text/calendar; charset=utf-8",
+      "content-disposition": 'attachment; filename="albverein-termin.ics"',
+      "content-language": "de",
+    },
+  });
+}
+
+export function buildCalendarFile(input) {
+  const title = String(input.title || "").trim();
+  const startDate = String(input.startDate || "").trim();
+  const endDate = String(input.endDate || "").trim();
+  const startTime = String(input.startTime || "").trim();
+  const endTime = String(input.endTime || "").trim();
+  const location = String(input.location || "").trim();
+  if (!title || title.length > 120) throw new HttpError(400, "Invalid event title");
+  if (!isCalendarDate(startDate)) throw new HttpError(400, "Invalid start date");
+  if (endDate && (!isCalendarDate(endDate) || endDate < startDate)) throw new HttpError(400, "Invalid end date");
+  if (startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) throw new HttpError(400, "Invalid start time");
+  if (endTime && (!startTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime))) throw new HttpError(400, "Invalid end time");
+  if (location.length > 160) throw new HttpError(400, "Invalid location");
+  const compactStart = startDate.replaceAll("-", "");
+  const compactEnd = (endDate || startDate).replaceAll("-", "");
+  const timeValue = (value) => value.replace(":", "") + "00";
+  const slug = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "termin";
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "PRODID:-//Albverein Schwenningen//Termine//DE",
+    "BEGIN:VEVENT",
+    `UID:${compactStart}-${startTime ? timeValue(startTime) : "allday"}-${slug}@sav-schwenningen.de`,
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`,
+  ];
+  if (startTime) {
+    lines.push(`DTSTART:${compactStart}T${timeValue(startTime)}`);
+    if (endDate || endTime) {
+      const effectiveEndTime = endTime || startTime;
+      if ((endDate || startDate) === startDate && effectiveEndTime <= startTime) throw new HttpError(400, "End must be after start");
+      lines.push(`DTEND:${compactEnd}T${timeValue(effectiveEndTime)}`);
+    }
+  } else {
+    lines.push(`DTSTART;VALUE=DATE:${compactStart}`);
+    lines.push(`DTEND;VALUE=DATE:${nextCalendarDate(endDate || startDate).replaceAll("-", "")}`);
+  }
+  lines.push(`SUMMARY:${escapeCalendarText(title)}`);
+  if (location) lines.push(`LOCATION:${escapeCalendarText(location)}`);
+  lines.push("DESCRIPTION:Termin der Ortsgruppe Schwenningen/Heuberg", "END:VEVENT", "END:VCALENDAR", "");
+  return lines.join("\r\n");
+}
+
+function isCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function nextCalendarDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + 1));
+  return date.toISOString().slice(0, 10);
+}
+
+function escapeCalendarText(value) {
+  return value.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/([,;])/g, "\\$1");
 }
 
 async function savePushSubscription(request, env) {
