@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "46" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "47" });
       } else if (request.method === "GET" && url.pathname === "/api/calendar.ics") {
         response = calendarResponse(url);
       } else if (request.method === "GET" && url.pathname === "/api/push/config") {
@@ -75,7 +75,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=46#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=47#admin-session=${token}` },
     });
   }
 
