@@ -1,4 +1,4 @@
-const CACHE='albverein-schwenningen-v38';
+const CACHE='albverein-schwenningen-v39';
 const DATA_CACHE='albverein-schwenningen-data-v1';
 const FILES=['./','./index.html','./manifest.webmanifest','./sav-app-icon-192.png','./sav-app-icon-512.png','./sav-app-icon-maskable-512.png','./sav-apple-touch-icon.png','./assets/florian-lessner.jpeg','./assets/matthias-kienitz.jpeg'];
 const API_ORIGIN='https://sav-schwenningen-backend.florian-lessner.workers.dev';
