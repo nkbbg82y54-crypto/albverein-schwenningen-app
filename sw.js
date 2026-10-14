@@ -1,4 +1,4 @@
-const CACHE='albverein-schwenningen-v39';
+const CACHE='albverein-schwenningen-v40';
 const DATA_CACHE='albverein-schwenningen-data-v1';
 const FILES=['./','./index.html','./manifest.webmanifest','./sav-app-icon-192.png','./sav-app-icon-512.png','./sav-app-icon-maskable-512.png','./sav-apple-touch-icon.png','./assets/florian-lessner.jpeg','./assets/matthias-kienitz.jpeg'];
 const API_ORIGIN='https://sav-schwenningen-backend.florian-lessner.workers.dev';
@@ -10,6 +10,7 @@ self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(url.origin===API_ORIGIN&&url.pathname.startsWith('/api/content/')){event.respondWith((async()=>{const cache=await caches.open(DATA_CACHE);try{const response=await fetch(event.request);if(response.ok)await cache.put(event.request,response.clone());return response}catch(error){const cached=await cache.match(event.request);if(cached)return cached;return new Response(JSON.stringify({error:'Offline und noch keine gespeicherten Inhalte verfügbar'}),{status:503,headers:{'content-type':'application/json; charset=utf-8','access-control-allow-origin':'https://app.sav-schwenningen.de','access-control-allow-credentials':'true'}})}})());return}
   if(url.origin!==location.origin)return;
+  if(event.request.mode==='navigate'){event.respondWith((async()=>{const cache=await caches.open(CACHE);try{const response=await fetch(event.request,{cache:'no-store'});if(response.ok){await cache.put('./',response.clone());await cache.put(event.request,response.clone())}return response}catch(error){return await cache.match(event.request)||await cache.match('./')||await cache.match('./index.html')}})());return}
   event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response})));
 });
 self.addEventListener('push',event=>{
