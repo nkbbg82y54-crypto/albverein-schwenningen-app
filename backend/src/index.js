@@ -26,7 +26,7 @@ export default {
       let response;
 
       if (request.method === "GET" && url.pathname === "/health") {
-        response = json({ ok: true, service: "sav-schwenningen-backend", version: "34" });
+        response = json({ ok: true, service: "sav-schwenningen-backend", version: "36" });
       } else if (request.method === "GET" && url.pathname === "/api/calendar.ics") {
         response = calendarResponse(url);
       } else if (request.method === "GET" && url.pathname === "/api/push/config") {
@@ -75,7 +75,7 @@ async function handleAdminRequest(request, url, env, ctx) {
     const token = await createAdminSessionToken(actor.email, env.DATA_ENCRYPTION_KEY);
     return new Response(null, {
       status: 302,
-      headers: { location: `${env.ALLOWED_ORIGIN}/?v=34#admin-session=${token}` },
+      headers: { location: `${env.ALLOWED_ORIGIN}/?v=36#admin-session=${token}` },
     });
   }
 
@@ -85,6 +85,37 @@ async function handleAdminRequest(request, url, env, ctx) {
       displayName: actor.display_name,
       roleLabel: actor.role_label,
       permissions: actor.permissions,
+    });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/backup") {
+    requirePermission(actor, "manage_admins");
+    const rows = await env.DB.prepare(
+      `SELECT id, resource_type, payload_json, sort_order, published,
+              created_at, updated_at, updated_by
+       FROM content_items
+       ORDER BY resource_type, sort_order, created_at`,
+    ).all();
+    const content = { events: [], notices: [], board: [], gallery: [] };
+    for (const row of rows.results) {
+      if (!Object.hasOwn(content, row.resource_type)) continue;
+      content[row.resource_type].push({
+        id: row.id,
+        payload: JSON.parse(row.payload_json),
+        sortOrder: row.sort_order,
+        published: Boolean(row.published),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        updatedBy: row.updated_by,
+      });
+    }
+    const itemCount = Object.values(content).reduce((sum, items) => sum + items.length, 0);
+    ctx.waitUntil(audit(env, actor.email, "backup.export", "content", null, { itemCount }));
+    return json({
+      format: "sav-schwenningen-content-backup",
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      content,
     });
   }
 
