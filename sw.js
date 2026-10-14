@@ -1,8 +1,8 @@
-const CACHE='albverein-schwenningen-v42';
+const CACHE='albverein-schwenningen-v43';
 const DATA_CACHE='albverein-schwenningen-data-v1';
 const APP_ROOT='https://app.sav-schwenningen.de/';
 const APP_SHELL='https://app.sav-schwenningen.de/index.html';
-const FILES=['./manifest.webmanifest','./sav-app-icon-192.png','./sav-app-icon-512.png','./sav-app-icon-maskable-512.png','./sav-apple-touch-icon.png','./assets/florian-lessner.jpeg','./assets/matthias-kienitz.jpeg'];
+const FILES=['./manifest.webmanifest','./sav-app-icon-192.png','./sav-app-icon-512.png','./sav-app-icon-maskable-512.png','./sav-apple-touch-icon.png','./assets/startseite-donautal.jpg','./assets/florian-lessner.jpeg','./assets/matthias-kienitz.jpeg'];
 const API_ORIGIN='https://sav-schwenningen-backend.florian-lessner.workers.dev';
 const PUSH_API='https://sav-schwenningen-backend.florian-lessner.workers.dev/api/push/latest';
 self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE),shell=await fetch(APP_SHELL,{cache:'reload'});if(!shell.ok)throw new Error('App shell could not be cached');await cache.put(APP_ROOT,shell.clone());await cache.put(APP_SHELL,shell.clone());await cache.addAll(FILES);await self.skipWaiting()})()));
