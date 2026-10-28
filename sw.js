@@ -1,4 +1,4 @@
-const CACHE='albverein-schwenningen-v54';
+const CACHE='albverein-schwenningen-v55';
 const DATA_CACHE='albverein-schwenningen-data-v1';
 const APP_ROOT='https://app.sav-schwenningen.de/';
 const APP_SHELL='https://app.sav-schwenningen.de/index.html';

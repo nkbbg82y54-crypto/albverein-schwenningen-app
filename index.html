@@ -103,7 +103,7 @@
   document.querySelectorAll('[data-form]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-form]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.form-panel').forEach(x=>x.classList.toggle('active',x.id===b.dataset.form))}));
   const installCard=document.getElementById('installCard'),installAppButton=document.getElementById('installAppButton'),installInstructions=document.getElementById('installInstructions');let deferredInstallPrompt=null;
   function appRunsStandalone(){return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}
-  const isSamsungBrowser=/SamsungBrowser/i.test(navigator.userAgent);
+  const isSamsungBrowser=/SamsungBrowser/i.test(navigator.userAgent);if(isSamsungBrowser){installCard.querySelector('h2').textContent='App zum Startbildschirm hinzufügen';installCard.querySelector('p').textContent='Ohne Sicherheitswarnung öffnen und anschließend Push-Mitteilungen aktivieren.';installAppButton.textContent='Zum Startbildschirm hinzufügen'}
   function showInstallHelp(){installInstructions.replaceChildren();const title=document.createElement('strong'),text=document.createElement('span'),isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);title.textContent=isIOS?'Installation auf iPhone oder iPad':isSamsungBrowser?'Installation auf Samsung-Geräten':'Installation über den Browser';text.textContent=isIOS?'Tippe in Safari auf „Teilen“ und anschließend auf „Zum Home-Bildschirm“. Bestätige danach mit „Hinzufügen“.':isSamsungBrowser?'Tippe in Samsung Internet auf das Menü und wähle „Seite hinzufügen zu“ und danach „Startbildschirm“. Öffne anschließend die App über das neue Symbol, tippe oben auf „Push aktivieren“ und erlaube die Mitteilungen. Alternativ kannst du die vollständige App-Installation über Google Chrome verwenden.':'Öffne das Browsermenü und wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“.';installInstructions.append(title,text);installInstructions.classList.add('show')}
   if(!appRunsStandalone()&&!sessionStorage.getItem('sav-install-dismissed'))installCard.classList.add('show');
   window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installCard.classList.add('show')});
@@ -268,7 +268,7 @@
   window.addEventListener('online',refreshPublicContent);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshPublicContent()});
   setInterval(()=>{if(!document.hidden)refreshPublicContent()},5*60*1000);
-  if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{const registration=await navigator.serviceWorker.register('./sw.js?v=54');await registration.update();await refreshPushState()}catch(error){console.warn('Service Worker konnte nicht gestartet werden',error)}});
+  if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{const registration=await navigator.serviceWorker.register('./sw.js?v=55');await registration.update();await refreshPushState()}catch(error){console.warn('Service Worker konnte nicht gestartet werden',error)}});
 </script>
 </body>
 </html>
