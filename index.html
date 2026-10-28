@@ -103,10 +103,11 @@
   document.querySelectorAll('[data-form]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-form]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.form-panel').forEach(x=>x.classList.toggle('active',x.id===b.dataset.form))}));
   const installCard=document.getElementById('installCard'),installAppButton=document.getElementById('installAppButton'),installInstructions=document.getElementById('installInstructions');let deferredInstallPrompt=null;
   function appRunsStandalone(){return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}
-  function showInstallHelp(){installInstructions.replaceChildren();const title=document.createElement('strong'),text=document.createElement('span'),isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);title.textContent=isIOS?'Installation auf iPhone oder iPad':'Installation über den Browser';text.textContent=isIOS?'Tippe in Safari auf „Teilen“ und anschließend auf „Zum Home-Bildschirm“. Bestätige danach mit „Hinzufügen“.':'Öffne das Browsermenü und wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“.';installInstructions.append(title,text);installInstructions.classList.add('show')}
+  const isSamsungBrowser=/SamsungBrowser/i.test(navigator.userAgent);
+  function showInstallHelp(){installInstructions.replaceChildren();const title=document.createElement('strong'),text=document.createElement('span'),isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);title.textContent=isIOS?'Installation auf iPhone oder iPad':isSamsungBrowser?'Installation auf Samsung-Geräten':'Installation über den Browser';text.textContent=isIOS?'Tippe in Safari auf „Teilen“ und anschließend auf „Zum Home-Bildschirm“. Bestätige danach mit „Hinzufügen“.':isSamsungBrowser?'Öffne app.sav-schwenningen.de in der aktuellen Version von Google Chrome und wähle dort im Menü „App installieren“. So wird die fehlerhafte Sicherheitswarnung von Samsung Internet vermieden.':'Öffne das Browsermenü und wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“.';installInstructions.append(title,text);installInstructions.classList.add('show')}
   if(!appRunsStandalone()&&!sessionStorage.getItem('sav-install-dismissed'))installCard.classList.add('show');
   window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installCard.classList.add('show')});
-  installAppButton.addEventListener('click',async()=>{if(!deferredInstallPrompt){showInstallHelp();return}deferredInstallPrompt.prompt();const choice=await deferredInstallPrompt.userChoice;if(choice.outcome==='accepted')installCard.classList.remove('show');else showInstallHelp();deferredInstallPrompt=null});
+  installAppButton.addEventListener('click',async()=>{if(isSamsungBrowser||!deferredInstallPrompt){showInstallHelp();return}deferredInstallPrompt.prompt();const choice=await deferredInstallPrompt.userChoice;if(choice.outcome==='accepted')installCard.classList.remove('show');else showInstallHelp();deferredInstallPrompt=null});
   document.getElementById('installLaterButton').addEventListener('click',()=>{sessionStorage.setItem('sav-install-dismissed','1');installCard.classList.remove('show')});
   window.addEventListener('appinstalled',()=>{installCard.classList.remove('show');deferredInstallPrompt=null});
   const API_BASE='https://sav-schwenningen-backend.florian-lessner.workers.dev',ADMIN_SESSION_KEY='sav-admin-session';
@@ -267,7 +268,7 @@
   window.addEventListener('online',refreshPublicContent);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshPublicContent()});
   setInterval(()=>{if(!document.hidden)refreshPublicContent()},5*60*1000);
-  if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{const registration=await navigator.serviceWorker.register('./sw.js?v=51');await registration.update();await refreshPushState()}catch(error){console.warn('Service Worker konnte nicht gestartet werden',error)}});
+  if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{const registration=await navigator.serviceWorker.register('./sw.js?v=52');await registration.update();await refreshPushState()}catch(error){console.warn('Service Worker konnte nicht gestartet werden',error)}});
 </script>
 </body>
 </html>

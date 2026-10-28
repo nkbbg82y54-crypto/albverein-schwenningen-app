@@ -3,6 +3,7 @@
   "short_name": "Albverein",
   "description": "Termine, Meldungen und Informationen der Ortsgruppe Schwenningen/Heuberg",
   "lang": "de",
+  "id": "/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
